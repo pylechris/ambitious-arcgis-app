@@ -17,13 +17,7 @@
                 </tr>
             </thead>
             <tbody>
-                {{#each model.results as |item|}}
-                <tr>
-                    <td>{{item.title}}</td>
-                    <td>{{item.type}}</td>
-                    <td>{{item.owner}}</td>
-                </tr>
-                {{/each}}
+                {{#each model.results as |item|}} {{results-item model=item}} {{/each}}
             </tbody>
         </table>
     </div>
