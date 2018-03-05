@@ -20,5 +20,6 @@
                 {{#each model.results as |item|}} {{results-item model=item}} {{/each}}
             </tbody>
         </table>
+        {{item-pager pageSize=num totalCount=model.total pageNumber=pageNumber changePage=(action "changePage") }}
     </div>
 </div>
