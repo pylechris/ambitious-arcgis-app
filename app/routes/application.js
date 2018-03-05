@@ -9,7 +9,7 @@ export default Route.extend({
       this.get('session').open('arcgis-oauth-bearer')
         .then((authorization) => {
           debug('AUTH SUCCESS: ', authorization);
-          console.log('AUTH SUCCESS: ', authorization);
+          // console.log('AUTH SUCCESS: ', authorization);
           //transition to some secured route or... so whatever is needed
           this.transitionTo('index');
         })
@@ -19,7 +19,7 @@ export default Route.extend({
     },
     signout () {
       debug(' do sign out');
-      console.log('Logout');
+      // console.log('Logout');
     }
   },
   intl: service(),
