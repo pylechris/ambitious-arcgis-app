@@ -4,7 +4,11 @@
     <a class="navbar-brand" href="#">Ambitious ArcGIS App</a>
 </div>
 {{#navbar.content}} {{#navbar.nav as |nav|}} {{#nav.item}} {{#nav.link-to "index"}}Home{{/nav.link-to}} {{/nav.item}} {{#nav.item}}
-{{#nav.link-to "items"}}Items{{/nav.link-to}} {{/nav.item}} {{/navbar.nav}} {{/navbar.content}} {{/bs-navbar}}
+{{#nav.link-to "items"}}Items{{/nav.link-to}} {{/nav.item}} {{/navbar.nav}} {{/navbar.content}} {{#navbar.nav class="ml-auto"
+as |nav|}} {{#if session.isAuthenticated}} {{#nav.item}}
+<a href="#" {{action 'signout'}}>Sign Out</a>{{/nav.item}} {{else}} {{#nav.item}}
+<a class="nav-link active" href="#" {{action 'signin'}}>Sign In</a>{{/nav.item}} {{/if}} {{/navbar.nav}} {{/bs-navbar}}
+
 
 <div class="container mt-5">
     {{outlet}}

@@ -20,6 +20,7 @@ module.exports = function(environment) {
       sessionServiceName: 'session',
       providers: {
        'arcgis-oauth-bearer': {
+          apiKey: "rmnDgkbt72F8GP7a",
           portalUrl: 'https://www.arcgis.com'
         }
       }
