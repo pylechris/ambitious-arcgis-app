@@ -11,8 +11,9 @@ export default Service.extend({
     };
     // load the map modules
     return this.get('esriLoader').loadModules(['esri/Map', 'esri/views/MapView', 'esri/Graphic',
-      "esri/layers/GraphicsLayer", "esri/widgets/Sketch/SketchViewModel"], options)
-      .then(([Map, MapView, Graphic, GraphicsLayer, SketchViewModel]) => {
+      "esri/layers/GraphicsLayer", "esri/widgets/Sketch/SketchViewModel", "esri/views/2d/draw/Draw",
+      "esri/geometry/Polyline", "esri/geometry/geometryEngine"], options)
+      .then(([Map, MapView, Graphic, GraphicsLayer, SketchViewModel, Draw, Polyline, geometryEngine]) => {
         if (!element || this.get('isDestroyed') || this.get('isDestroying')) {
           // component or app was likely destroyed
           return;
@@ -121,21 +122,21 @@ export default Service.extend({
           // ****************************************
           // activate the sketch to create a polyline
           // ****************************************
-          var drawLineButton = document.getElementById("polylineButton");
-          drawLineButton.onclick = function () {
-            // set the sketch to create a polyline geometry
-            sketchViewModel.create("polyline");
-            setActiveButton(this);
-          };
+          // var drawLineButton = document.getElementById("polylineButton");
+          // drawLineButton.onclick = function () {
+          //   // set the sketch to create a polyline geometry
+          //   sketchViewModel.create("polyline");
+          //   setActiveButton(this);
+          // };
 
-          // **************
-          // reset button
-          // **************
-          document.getElementById("resetBtn").onclick = function () {
-            sketchViewModel.reset();
-            tempGraphicsLayer.removeAll();
-            setActiveButton();
-          };
+          // // **************
+          // // reset button
+          // // **************
+          // document.getElementById("resetBtn").onclick = function () {
+          //   sketchViewModel.reset();
+          //   tempGraphicsLayer.removeAll();
+          //   setActiveButton();
+          // };
 
           const setActiveButton = (selectedButton) => {
             // focus the view to activate keyboard shortcuts for sketching
@@ -150,6 +151,143 @@ export default Service.extend({
           }
           // End Sketch Stuff
           // ************************************************************************************
+
+          // ************************************************************************************************
+          // Start of Draw Polyline
+          // ************************************************************************************************
+          const numberWithCommas = x =>
+            x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+          // ========================================================================
+          //     POLYLINES
+          // ========================================================================
+          var draw = new Draw({ view: this._view });
+
+          var drawLineButton = document.getElementById("polylineButton");
+          drawLineButton.onclick = function () {
+            enableCreatePolyline(draw);
+            setActiveButton(this);
+          };
+
+          // **************
+          // reset button
+          // **************
+          document.getElementById("resetBtn").onclick = function () {
+            draw.reset();
+            tempGraphicsLayer.removeAll();
+            setActiveButton();
+          };
+
+          // create a polyline using the provided vertices
+          const createPolyline = vertices =>
+            new Polyline({
+              paths: vertices,
+              spatialReference: this._view.spatialReference
+            });
+
+          // create a new graphic representing the polygon that is being drawn on the view
+          const createPolylineGraphic = geometry => {
+            const graphic = new Graphic({
+              geometry,
+              symbol: {
+                type: "simple-line", // autocasts as new SimpleMarkerSymbol()
+                color: "dodgerblue",
+                width: "3",
+                style: "solid"
+              }
+            });
+            return graphic;
+          };
+
+          //Label polyon with its area
+          const labelLines = (geom, length) => {
+            const graphic = new Graphic({
+              geometry: geom.extent.center,
+              symbol: {
+                type: "text",
+                color: "black",
+                haloColor: "black",
+                haloSize: "2px",
+                text: `${numberWithCommas(length.toFixed(2))} feet`,
+                xoffset: 3,
+                yoffset: 3,
+                font: {
+                  // autocast as Font
+                  size: 14,
+                  family: "sans-serif"
+                }
+              }
+            });
+            return graphic;
+          };
+
+          // this function is called from the polyline draw action events
+          // to provide a visual feedback to users as they are drawing a polyline
+          const drawPolyline = (evt, isComplete = false) => {
+            const vertices = evt.vertices;
+
+            //remove existing graphic
+            this._view.graphics.removeAll();
+
+            // create a new polyline
+            const polyline = createPolyline(vertices);
+
+            // create a new graphic representing the polyline, add it to the view, copy to tempGraphics when complete
+            let graphic = createPolylineGraphic(polyline);
+            if (isComplete) {
+              tempGraphicsLayer.add(graphic);
+            } else {
+              this._view.graphics.add(graphic);
+            }
+
+            // calculate the area of the polyline
+            let length = geometryEngine.geodesicLength(polyline, "feet");
+            if (length < 0) {
+              // simplify the polyline if needed and calculate the area again
+              const simplifiedPolyline = geometryEngine.simplify(polyline);
+              if (simplifiedPolyline) {
+                length = geometryEngine.geodesicLength(simplifiedPolyline, "feet");
+              }
+            }
+            // start displaying the area of the polyline, copy to tempGraphics when complete
+            graphic = labelLines(polyline, length);
+            if (isComplete) {
+              tempGraphicsLayer.add(graphic);
+            } else {
+              this._view.graphics.add(graphic);
+            }
+          };
+
+          const drawPolylineComplete = evt => {
+            drawPolyline(evt, true);
+            this._view.popupManager.enabled = true;
+          };
+
+          const enableCreatePolyline = (draw) => {
+            // create() will return a reference to an instance of PolygonDrawAction
+            const action = draw.create("polyline");
+
+            // focus the view to activate keyboard shortcuts for drawing polygons
+            this._view.focus();
+
+            // listen to vertex-add event on the action
+            action.on("vertex-add", drawPolyline);
+
+            // listen to cursor-update event on the action
+            action.on("cursor-update", drawPolyline);
+
+            // listen to vertex-remove event on the action
+            action.on("vertex-remove", drawPolyline);
+
+            // *******************************************
+            // listen to draw-complete event on the action
+            // *******************************************
+            action.on("draw-complete", evt => {
+              drawPolylineComplete(evt);
+            });
+          };
+          // ************************************************************************************************
+          // End of Draw Polyline
+          // ************************************************************************************************
 
           // let the caller know that the map is available
           return;
