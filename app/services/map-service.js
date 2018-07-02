@@ -1,5 +1,6 @@
 import Service from '@ember/service';
 import { inject as service } from '@ember/service';
+import Route from '@ember/routing/route';
 
 export default Service.extend({
   esriLoader: service('esri-loader'),
@@ -12,8 +13,8 @@ export default Service.extend({
     // load the map modules
     return this.get('esriLoader').loadModules(['esri/Map', 'esri/views/MapView', 'esri/Graphic',
       "esri/layers/GraphicsLayer", "esri/widgets/Sketch/SketchViewModel", "esri/views/2d/draw/Draw",
-      "esri/geometry/Polyline", "esri/geometry/geometryEngine"], options)
-      .then(([Map, MapView, Graphic, GraphicsLayer, SketchViewModel, Draw, Polyline, geometryEngine]) => {
+      "esri/geometry/Polyline", "esri/geometry/geometryEngine", "esri/layers/FeatureLayer", "esri/geometry/Circle"], options)
+      .then(([Map, MapView, Graphic, GraphicsLayer, SketchViewModel, Draw, Polyline, geometryEngine, FeatureLayer, Circle]) => {
         if (!element || this.get('isDestroyed') || this.get('isDestroying')) {
           // component or app was likely destroyed
           return;
@@ -29,12 +30,21 @@ export default Service.extend({
 
         var map = new Map(mapOptions);
         map.add(tempGraphicsLayer);
+
+        // Add a road segment layer
+        // "http://gis05s.hdrgateway.com/arcgis/rest/services/Florida/TransPed_A/MapServer/74"
+        const routeVertices = [];
+        const url = "http://gis05s.hdrgateway.com/arcgis/rest/services/Florida/TransPed_A/MapServer/74";
+        const roadFeatureLayer = new FeatureLayer({ url });
+        map.add(roadFeatureLayer);
+
         // show the map at the element and
         // hold on to the view reference for later operations
         this._view = new MapView({
           map,
           container: element,
-          zoom: 2
+          center: [-81.385, 28.535],
+          zoom: 15
         });
 
         var polylineSymbol = { // symbol used for polylines
@@ -45,10 +55,10 @@ export default Service.extend({
         }
 
         return this._view.when(() => {
-          this._view.on("mouse-wheel", function (evt) {
-            // prevents zooming with the mouse-wheel event
-            evt.stopPropagation();
-          });
+          // this._view.on("mouse-wheel", function (evt) {
+          //   // prevents zooming with the mouse-wheel event
+          //   evt.stopPropagation();
+          // });
 
           // ************************************************************************************
           // Sketch Stuff
@@ -174,6 +184,7 @@ export default Service.extend({
           document.getElementById("resetBtn").onclick = function () {
             draw.reset();
             tempGraphicsLayer.removeAll();
+            routeVertices.length = 0;
             setActiveButton();
           };
 
@@ -185,14 +196,15 @@ export default Service.extend({
             });
 
           // create a new graphic representing the polygon that is being drawn on the view
-          const createPolylineGraphic = geometry => {
+          const createPolylineGraphic = (geometry, lineStyle = "solid", color = "dodgerblue", width = "1") => {
+
             const graphic = new Graphic({
               geometry,
               symbol: {
                 type: "simple-line", // autocasts as new SimpleMarkerSymbol()
-                color: "dodgerblue",
-                width: "3",
-                style: "solid"
+                color,
+                width,
+                style: lineStyle
               }
             });
             return graphic;
@@ -207,7 +219,7 @@ export default Service.extend({
                 color: "black",
                 haloColor: "black",
                 haloSize: "2px",
-                text: `${numberWithCommas(length.toFixed(2))} feet`,
+                //text: `${numberWithCommas(length.toFixed(2))} feet`,
                 xoffset: 3,
                 yoffset: 3,
                 font: {
@@ -220,41 +232,111 @@ export default Service.extend({
             return graphic;
           };
 
+          const createPoint = (coordinates) => {
+            return {
+              type: "point", // autocasts as /Point
+              x: coordinates[0],
+              y: coordinates[1],
+              spatialReference: this._view.spatialReference
+            };
+          }
+          // create a new graphic representing the polygon that is being drawn on the view
+          const createPointGraphic = coordinates => {
+            const geometry = createPoint(coordinates);
+
+            const graphic = new Graphic({
+              geometry,
+              symbol: {
+                type: "simple-marker", // autocasts as new SimpleMarkerSymbol()
+                color: "dodgerblue",
+                size: "14",
+                style: "diamond"
+              }
+            });
+            return graphic;
+          };
+
           // this function is called from the polyline draw action events
           // to provide a visual feedback to users as they are drawing a polyline
           const drawPolyline = (evt, isComplete = false) => {
-            const vertices = evt.vertices;
-
             //remove existing graphic
             this._view.graphics.removeAll();
+            const vertices = evt.vertices;
+            // if (evt.type === 'vertex-add' || evt.type === 'cursor-update') {
+            if (evt.type === 'vertex-add') {
+              //const routeGraphic = tempGraphicsLayer.graphics.length > 0 ? tempGraphicsLayer.graphics.shift() : undefined;
+
+              //const routeVertices = routeGraphic && routeGraphic.geometry.paths.length > 0 ? routeGraphic.geometry.paths[0] : vertices;
+              tempGraphicsLayer.graphics.removeAll();
+              console.log(evt.type);
+              this._view.whenLayerView(roadFeatureLayer).then(lyrView => {
+                // lyrView.watch("updating", val => {
+                //   if (!val) { // wait for the layer view to finish updating
+                const queryParams = roadFeatureLayer.createQuery();
+                const newPoint = createPoint(vertices[vertices.length - 1]);
+                const searchArea = new Circle({ center: newPoint, radius: 500 })
+                queryParams.geometry = searchArea;
+                roadFeatureLayer.queryFeatures(queryParams).then(results => {
+                  if (results.features.length > 0) {
+                    let nearestCoord = undefined;
+                    results.features.forEach(feature => {
+                      const targetCoord = geometryEngine.nearestCoordinate(feature.geometry, newPoint);
+                      nearestCoord = (nearestCoord === undefined || targetCoord.distance < nearestCoord.distance) ? targetCoord : nearestCoord;
+                    });
+
+                    if (nearestCoord) {
+                      //vertices[vertices.length - 1] = [nearestCoord.coordinate.x, nearestCoord.coordinate.y];
+                      routeVertices.push([nearestCoord.coordinate.x, nearestCoord.coordinate.y]);
+                      // const pointGraphic = new Graphic({
+                      //   geometry: nearestCoord.coordinate,
+                      //   symbol: {
+                      //     type: "simple-marker", // autocasts as new SimpleMarkerSymbol()
+                      //     color: "dodgerblue",
+                      //     size: "14",
+                      //     style: "diamond"
+                      //   }
+                      // })
+                      // this._view.graphics.add(pointGraphic);
+                    }
+                  }
+                });
+                //   }
+                // });
+              });
+              const routepolyline = createPolyline(routeVertices);
+              const routegraphic = createPolylineGraphic(routepolyline, "solid", "red", "3");
+              tempGraphicsLayer.graphics.add(routegraphic);
+            }
+
 
             // create a new polyline
-            const polyline = createPolyline(vertices);
+            let polyline = createPolyline(vertices);
 
             // create a new graphic representing the polyline, add it to the view, copy to tempGraphics when complete
-            let graphic = createPolylineGraphic(polyline);
+            let graphic = createPolylineGraphic(polyline, "dash");
+
             if (isComplete) {
-              tempGraphicsLayer.add(graphic);
+              //  tempGraphicsLayer.add(graphic);
             } else {
               this._view.graphics.add(graphic);
             }
 
             // calculate the area of the polyline
-            let length = geometryEngine.geodesicLength(polyline, "feet");
-            if (length < 0) {
-              // simplify the polyline if needed and calculate the area again
-              const simplifiedPolyline = geometryEngine.simplify(polyline);
-              if (simplifiedPolyline) {
-                length = geometryEngine.geodesicLength(simplifiedPolyline, "feet");
-              }
-            }
+            // let length = geometryEngine.geodesicLength(polyline, "feet");
+            // if (length < 0) {
+            //   // simplify the polyline if needed and calculate the area again
+            //   const simplifiedPolyline = geometryEngine.simplify(polyline);
+            //   if (simplifiedPolyline) {
+            //     length = geometryEngine.geodesicLength(simplifiedPolyline, "feet");
+            //   }
+            // }
             // start displaying the area of the polyline, copy to tempGraphics when complete
-            graphic = labelLines(polyline, length);
-            if (isComplete) {
-              tempGraphicsLayer.add(graphic);
-            } else {
-              this._view.graphics.add(graphic);
-            }
+            // graphic = labelLines(polyline, length);
+            // if (isComplete) {
+            //   tempGraphicsLayer.add(graphic);
+            // } else {
+            //   this._view.graphics.add(graphic);
+            // }
           };
 
           const drawPolylineComplete = evt => {
@@ -263,6 +345,7 @@ export default Service.extend({
           };
 
           const enableCreatePolyline = (draw) => {
+            routeVertices.length = 0;
             // create() will return a reference to an instance of PolygonDrawAction
             const action = draw.create("polyline");
 
