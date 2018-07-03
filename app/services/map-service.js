@@ -34,7 +34,10 @@ export default Service.extend({
         // Add a road segment layer
         // "http://gis05s.hdrgateway.com/arcgis/rest/services/Florida/TransPed_A/MapServer/74"
         const routeVertices = [];
+        const routeSourceFeatures = [];
+        let routeSourceVertices = {};
         const url = "http://gis05s.hdrgateway.com/arcgis/rest/services/Florida/TransPed_A/MapServer/74";
+        const sourceIdFld = "Transport.DBO.aadt.FID";
         const roadFeatureLayer = new FeatureLayer({ url });
         map.add(roadFeatureLayer);
 
@@ -185,6 +188,8 @@ export default Service.extend({
             draw.reset();
             tempGraphicsLayer.removeAll();
             routeVertices.length = 0;
+            routeSourceFeatures.length = 0;
+            routeSourceVertices = {};
             setActiveButton();
           };
 
@@ -279,14 +284,43 @@ export default Service.extend({
                 roadFeatureLayer.queryFeatures(queryParams).then(results => {
                   if (results.features.length > 0) {
                     let nearestCoord = undefined;
+                    let nearestFeature = {};
                     results.features.forEach(feature => {
                       const targetCoord = geometryEngine.nearestCoordinate(feature.geometry, newPoint);
-                      nearestCoord = (nearestCoord === undefined || targetCoord.distance < nearestCoord.distance) ? targetCoord : nearestCoord;
+                      // See if this is the closest coord
+                      if (nearestCoord === undefined || targetCoord.distance < nearestCoord.distance) {
+                        nearestCoord = targetCoord;
+                        nearestFeature = feature;
+                      }
+
                     });
 
                     if (nearestCoord) {
+                      if (routeSourceFeatures.includes(nearestFeature.attributes[sourceIdFld])) {
+                        // Add coords between the last vertex index to the current index
+                        const vs = routeSourceVertices[nearestFeature.attributes[sourceIdFld]];
+                        const vx = nearestCoord.vertexIndex;
+
+                        // figure out where the current index is relative to the existing indices
+                        const minVx = Math.min(...vs);
+                        const maxVx = Math.max(...vs);
+
+                        const idx = vx >= maxVx ? maxVx : minVx;
+                        const lo = vx >= idx ? idx + 1 : vx; //exclude existing index
+                        const hi = vx >= idx ? vx + 1 : idx; //include new index
+                        for (let i = lo; i < hi; i += 1) {
+                          vs.push(i);
+                          const coord = nearestFeature.geometry.paths[0][i]; // Assuming it's the first path
+                          routeVertices.push(coord);
+                        }
+                        routeSourceVertices[nearestFeature.attributes[sourceIdFld]] = vs;
+                      } else {
+                        routeSourceFeatures.push(nearestFeature.attributes[sourceIdFld]);
+                        routeSourceVertices[nearestFeature.attributes[sourceIdFld]] = [nearestCoord.vertexIndex];
+                        routeVertices.push([nearestCoord.coordinate.x, nearestCoord.coordinate.y]);
+                      }
                       //vertices[vertices.length - 1] = [nearestCoord.coordinate.x, nearestCoord.coordinate.y];
-                      routeVertices.push([nearestCoord.coordinate.x, nearestCoord.coordinate.y]);
+
                       // const pointGraphic = new Graphic({
                       //   geometry: nearestCoord.coordinate,
                       //   symbol: {
@@ -346,6 +380,9 @@ export default Service.extend({
 
           const enableCreatePolyline = (draw) => {
             routeVertices.length = 0;
+            routeSourceFeatures.length = 0;
+            routeSourceVertices = {};
+
             // create() will return a reference to an instance of PolygonDrawAction
             const action = draw.create("polyline");
 
