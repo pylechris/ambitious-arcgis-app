@@ -35,7 +35,8 @@ export default Service.extend({
         // "http://gis05s.hdrgateway.com/arcgis/rest/services/Florida/TransPed_A/MapServer/74"
         const routeVertices = [];
         const routeSourceFeatures = [];
-        let routeSourceVertices = {};
+        let touchFeatures = [];
+
         const url = "http://gis05s.hdrgateway.com/arcgis/rest/services/Florida/TransPed_A/MapServer/74";
         const sourceIdFld = "Transport.DBO.aadt.FID";
         const roadFeatureLayer = new FeatureLayer({ url });
@@ -189,7 +190,7 @@ export default Service.extend({
             tempGraphicsLayer.removeAll();
             routeVertices.length = 0;
             routeSourceFeatures.length = 0;
-            routeSourceVertices = {};
+            touchFeatures.length = 0;
             setActiveButton();
           };
 
@@ -278,60 +279,31 @@ export default Service.extend({
                 // lyrView.watch("updating", val => {
                 //   if (!val) { // wait for the layer view to finish updating
                 const queryParams = roadFeatureLayer.createQuery();
-                const newPoint = createPoint(vertices[vertices.length - 1]);
-                const searchArea = new Circle({ center: newPoint, radius: 500 })
-                queryParams.geometry = searchArea;
+                // const newPoint = createPoint(vertices[vertices.length - 1]);
+                // const searchArea = new Circle({ center: newPoint, radius: 500 });
+                //queryParams.geometry = searchArea;
+                const lastseg = createPolyline([vertices[vertices.length - 1], vertices[vertices.length - 2]]);
+                queryParams.geometry = lastseg.extent;
                 roadFeatureLayer.queryFeatures(queryParams).then(results => {
                   if (results.features.length > 0) {
-                    let nearestCoord = undefined;
-                    let nearestFeature = {};
                     results.features.forEach(feature => {
-                      const targetCoord = geometryEngine.nearestCoordinate(feature.geometry, newPoint);
+                      const intersects = geometryEngine.intersects(feature.geometry, lastseg);
                       // See if this is the closest coord
-                      if (nearestCoord === undefined || targetCoord.distance < nearestCoord.distance) {
-                        nearestCoord = targetCoord;
-                        nearestFeature = feature;
-                      }
+                      if (intersects) {
+                        if (!routeSourceFeatures.includes(feature.attributes[sourceIdFld])) {
+                          if (touchFeatures.includes(feature.attributes[sourceIdFld])) {
+                            // Add coords between the last vertex index to the current index
+                            routeSourceFeatures.push(feature.attributes[sourceIdFld]);
+                            touchFeatures.splice(touchFeatures.indexOf(feature.attributes[sourceIdFld]), 1);
 
-                    });
-
-                    if (nearestCoord) {
-                      if (routeSourceFeatures.includes(nearestFeature.attributes[sourceIdFld])) {
-                        // Add coords between the last vertex index to the current index
-                        const vs = routeSourceVertices[nearestFeature.attributes[sourceIdFld]];
-                        const vx = nearestCoord.vertexIndex;
-
-                        // figure out where the current index is relative to the existing indices
-                        const minVx = Math.min(...vs);
-                        const maxVx = Math.max(...vs);
-
-                        const idx = vx >= maxVx ? maxVx : minVx;
-                        const lo = vx >= idx ? idx + 1 : vx; //exclude existing index
-                        const hi = vx >= idx ? vx + 1 : idx; //include new index
-                        for (let i = lo; i < hi; i += 1) {
-                          vs.push(i);
-                          const coord = nearestFeature.geometry.paths[0][i]; // Assuming it's the first path
-                          routeVertices.push(coord);
+                            feature.geometry.paths[0].forEach(v => routeVertices.push(v));
+                          } else {
+                            // Add feature to touched array
+                            touchFeatures.push(feature.attributes[sourceIdFld]);
+                          }
                         }
-                        routeSourceVertices[nearestFeature.attributes[sourceIdFld]] = vs;
-                      } else {
-                        routeSourceFeatures.push(nearestFeature.attributes[sourceIdFld]);
-                        routeSourceVertices[nearestFeature.attributes[sourceIdFld]] = [nearestCoord.vertexIndex];
-                        routeVertices.push([nearestCoord.coordinate.x, nearestCoord.coordinate.y]);
                       }
-                      //vertices[vertices.length - 1] = [nearestCoord.coordinate.x, nearestCoord.coordinate.y];
-
-                      // const pointGraphic = new Graphic({
-                      //   geometry: nearestCoord.coordinate,
-                      //   symbol: {
-                      //     type: "simple-marker", // autocasts as new SimpleMarkerSymbol()
-                      //     color: "dodgerblue",
-                      //     size: "14",
-                      //     style: "diamond"
-                      //   }
-                      // })
-                      // this._view.graphics.add(pointGraphic);
-                    }
+                    });
                   }
                 });
                 //   }
@@ -381,7 +353,7 @@ export default Service.extend({
           const enableCreatePolyline = (draw) => {
             routeVertices.length = 0;
             routeSourceFeatures.length = 0;
-            routeSourceVertices = {};
+            touchFeatures.length = 0;
 
             // create() will return a reference to an instance of PolygonDrawAction
             const action = draw.create("polyline");
