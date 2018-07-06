@@ -37,8 +37,10 @@ export default Service.extend({
         const routeSourceFeatures = [];
         let touchFeatures = [];
 
-        const url = "http://gis05s.hdrgateway.com/arcgis/rest/services/Florida/TransPed_A/MapServer/74";
-        const sourceIdFld = "Transport.DBO.aadt.FID";
+        // const url = "http://gis05s.hdrgateway.com/arcgis/rest/services/Florida/TransPed_A/MapServer/74";
+        // const sourceIdFld = "Transport.DBO.aadt.FID";
+        const url = "http://sdgis.sandag.org/sdgis/rest/services/Basemap_pts_lines_v101_v2/MapServer/99";
+        const sourceIdFld = "OBJECTID";
         const roadFeatureLayer = new FeatureLayer({ url });
         map.add(roadFeatureLayer);
 
@@ -47,8 +49,9 @@ export default Service.extend({
         this._view = new MapView({
           map,
           container: element,
-          center: [-81.385, 28.535],
-          zoom: 15
+          // center: [-81.385, 28.535],
+          center: [-117.101, 32.600],
+          zoom: 13
         });
 
         var polylineSymbol = { // symbol used for polylines
