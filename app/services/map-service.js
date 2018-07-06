@@ -33,10 +33,6 @@ export default Service.extend({
 
         // Add a road segment layer
         // "http://gis05s.hdrgateway.com/arcgis/rest/services/Florida/TransPed_A/MapServer/74"
-        const routeVertices = [];
-        const routeSourceFeatures = [];
-        let touchFeatures = [];
-
         // const url = "http://gis05s.hdrgateway.com/arcgis/rest/services/Florida/TransPed_A/MapServer/74";
         // const sourceIdFld = "Transport.DBO.aadt.FID";
         const url = "http://sdgis.sandag.org/sdgis/rest/services/Basemap_pts_lines_v101_v2/MapServer/99";
@@ -53,6 +49,11 @@ export default Service.extend({
           center: [-117.101, 32.600],
           zoom: 13
         });
+
+        let routepolyline = new Polyline({ paths: [], spatialReference: this._view.spatialReference });
+        const routeVertices = [];
+        const routeSourceFeatures = [];
+        let touchFeatures = [];
 
         var polylineSymbol = { // symbol used for polylines
           type: "simple-line", // autocasts as new SimpleLineSymbol()
@@ -192,6 +193,7 @@ export default Service.extend({
             draw.reset();
             tempGraphicsLayer.removeAll();
             routeVertices.length = 0;
+            routepolyline = new Polyline({ paths: [], spatialReference: this._view.spatialReference });
             routeSourceFeatures.length = 0;
             touchFeatures.length = 0;
             setActiveButton();
@@ -277,44 +279,61 @@ export default Service.extend({
 
               //const routeVertices = routeGraphic && routeGraphic.geometry.paths.length > 0 ? routeGraphic.geometry.paths[0] : vertices;
               tempGraphicsLayer.graphics.removeAll();
-              console.log(evt.type);
+              // console.log(evt.type);
               this._view.whenLayerView(roadFeatureLayer).then(lyrView => {
                 // lyrView.watch("updating", val => {
                 //   if (!val) { // wait for the layer view to finish updating
                 const queryParams = roadFeatureLayer.createQuery();
-                // const newPoint = createPoint(vertices[vertices.length - 1]);
-                // const searchArea = new Circle({ center: newPoint, radius: 500 });
+                const newPoint = createPoint(vertices[vertices.length - 1]);
+                const searchArea = new Circle({ center: newPoint, radius: 500 });
                 //queryParams.geometry = searchArea;
-                const lastseg = createPolyline([vertices[vertices.length - 1], vertices[vertices.length - 2]]);
-                queryParams.geometry = lastseg.extent;
+                // const lastseg = createPolyline([vertices[vertices.length - 1], vertices[vertices.length - 2]]);
+                queryParams.geometry = searchArea;
+                let closestFeature = undefined;
+                let distance = 0.0;
                 roadFeatureLayer.queryFeatures(queryParams).then(results => {
                   if (results.features.length > 0) {
                     results.features.forEach(feature => {
-                      const intersects = geometryEngine.intersects(feature.geometry, lastseg);
+                      //const intersects = geometryEngine.intersects(feature.geometry, lastseg);
                       // See if this is the closest coord
-                      if (intersects) {
-                        if (!routeSourceFeatures.includes(feature.attributes[sourceIdFld])) {
-                          if (touchFeatures.includes(feature.attributes[sourceIdFld])) {
-                            // Add coords between the last vertex index to the current index
-                            routeSourceFeatures.push(feature.attributes[sourceIdFld]);
-                            touchFeatures.splice(touchFeatures.indexOf(feature.attributes[sourceIdFld]), 1);
-
-                            feature.geometry.paths[0].forEach(v => routeVertices.push(v));
-                          } else {
-                            // Add feature to touched array
-                            touchFeatures.push(feature.attributes[sourceIdFld]);
-                          }
-                        }
+                      const coordResult = geometryEngine.nearestCoordinate(feature.geometry, newPoint);
+                      if (distance === 0.0 || coordResult.distance <= distance) {
+                        distance = coordResult.distance;
+                        closestFeature = feature;
                       }
                     });
+                  }
+
+                  // Handle closest feature
+                  if (distance > 0) {
+                    if (!routeSourceFeatures.includes(closestFeature.attributes[sourceIdFld])) {
+                      if (touchFeatures.includes(closestFeature.attributes[sourceIdFld])) {
+                        // Add coords between the last vertex index to the current index
+                        routeSourceFeatures.push(closestFeature.attributes[sourceIdFld]);
+                        touchFeatures.splice(touchFeatures.indexOf(closestFeature.attributes[sourceIdFld]), 1);
+                        closestFeature.geometry.paths.forEach(path => {
+                          // console.log("new path added");
+                          routepolyline.addPath(path)
+                        });
+                        // console.log("Paths: " + closestFeature.geometry.paths.length);
+                        //closestFeature.geometry.paths[0].forEach(v => routeVertices.push(v));
+                      } else {
+                        // Add feature to touched array
+                        touchFeatures.push(closestFeature.attributes[sourceIdFld]);
+                      }
+                    }
+                  }
+                  //const routepolyline = createPolyline(routeVertices);
+                  if (routepolyline && routepolyline.paths.length > 0) {
+                    const routegraphic = createPolylineGraphic(routepolyline, "solid", "red", "3");
+                    tempGraphicsLayer.graphics.add(routegraphic);
+                    this._view.graphics.add(routegraphic);
                   }
                 });
                 //   }
                 // });
               });
-              const routepolyline = createPolyline(routeVertices);
-              const routegraphic = createPolylineGraphic(routepolyline, "solid", "red", "3");
-              tempGraphicsLayer.graphics.add(routegraphic);
+
             }
 
 
@@ -355,6 +374,7 @@ export default Service.extend({
 
           const enableCreatePolyline = (draw) => {
             routeVertices.length = 0;
+            routepolyline = new Polyline({ paths: [], spatialReference: this._view.spatialReference });
             routeSourceFeatures.length = 0;
             touchFeatures.length = 0;
 
